@@ -10,6 +10,7 @@ HEADERS = [
     "scraped_at",
     "discovery_rank",
     "reel_url",
+    "reel_id",
     "username",
     "posted_at",
     "caption",
@@ -17,12 +18,11 @@ HEADERS = [
     "view_count",
     "like_count",
     "comment_count",
-    "visual_description",
-    "aesthetic_tags",
+    "source_surface",
     "scrape_status",
 ]
 
-WRAP_COLUMNS = {"caption", "visual_description", "aesthetic_tags"}
+WRAP_COLUMNS = {"caption"}
 
 
 def _write_header(sheet: Worksheet):
@@ -67,3 +67,97 @@ def append_row(path: str, row: dict):
             cell.alignment = Alignment(wrap_text=True, vertical="top")
 
     workbook.save(path)
+
+
+def load_existing_reel_urls(path: str) -> set:
+    """Read reel_url values already recorded in the workbook, so a new run
+    can seed its dedup set and only append newly observed Reels.
+    """
+    if not os.path.exists(path):
+        return set()
+
+    workbook = load_workbook(path, read_only=True)
+    if SHEET_NAME not in workbook.sheetnames:
+        return set()
+
+    sheet = workbook[SHEET_NAME]
+    reel_url_index = HEADERS.index("reel_url")
+
+    urls = set()
+    for row in sheet.iter_rows(min_row=2, values_only=True):
+        if len(row) > reel_url_index and row[reel_url_index]:
+            urls.add(row[reel_url_index])
+
+    return urls
+
+
+def load_max_discovery_rank(path: str) -> int:
+    """Read existing discovery_rank values so a new run continues
+    numbering from the max rather than restarting at 1.
+    """
+    if not os.path.exists(path):
+        return 0
+
+    workbook = load_workbook(path, read_only=True)
+    if SHEET_NAME not in workbook.sheetnames:
+        return 0
+
+    sheet = workbook[SHEET_NAME]
+    rank_index = HEADERS.index("discovery_rank")
+
+    max_rank = 0
+    for row in sheet.iter_rows(min_row=2, values_only=True):
+        if len(row) > rank_index and isinstance(row[rank_index], (int, float)):
+            max_rank = max(max_rank, int(row[rank_index]))
+
+    return max_rank
+
+
+def open_workbook_for_update(path: str):
+    """Open the workbook read-write for a batch of targeted row updates
+    (e.g. a whole enrichment pass) — caller saves once when done.
+    """
+    workbook = load_workbook(path)
+    sheet = workbook[SHEET_NAME]
+    return workbook, sheet
+
+
+def find_row_by_reel_url(sheet: Worksheet, reel_url: str):
+    """Return the 1-indexed row number whose reel_url cell matches, or None."""
+    reel_url_index = HEADERS.index("reel_url")
+    for row_cells in sheet.iter_rows(min_row=2):
+        if row_cells[reel_url_index].value == reel_url:
+            return row_cells[0].row
+    return None
+
+
+def apply_enrichment_updates(sheet: Worksheet, row_num: int, updates: dict):
+    """Fill only currently-blank cells in the row from updates — never
+    overwrites an existing non-blank value. If a previously-blank caption
+    is now filled and the row's scrape_status is "partial", upgrade it to
+    "success" (never the reverse: a "success" row is never downgraded).
+    """
+    caption_index = HEADERS.index("caption") + 1
+    status_index = HEADERS.index("scrape_status") + 1
+
+    caption_was_blank = sheet.cell(row=row_num, column=caption_index).value in (None, "")
+
+    for header, value in updates.items():
+        if header not in HEADERS or header == "scrape_status":
+            continue
+        if value in (None, ""):
+            continue
+
+        col_index = HEADERS.index(header) + 1
+        cell = sheet.cell(row=row_num, column=col_index)
+        if cell.value not in (None, ""):
+            continue
+
+        cell.value = value
+        if header in WRAP_COLUMNS:
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+
+    if caption_was_blank and updates.get("caption"):
+        status_cell = sheet.cell(row=row_num, column=status_index)
+        if status_cell.value == "partial":
+            status_cell.value = "success"
