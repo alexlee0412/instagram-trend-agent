@@ -21,6 +21,12 @@ YDL_SOCKET_TIMEOUT_SECONDS = 15
 
 FRAME_COUNT = 5
 
+# Carousel posts: cap how many slides get sent to the model. If a carousel
+# has more usable slides than this, deterministically sample first + last +
+# evenly-spaced interior slides (never random) so the same post always
+# selects the same slides.
+MAX_VISUAL_ASSETS = 6
+
 # Which multimodal model provider identify_trend() should use.
 # One of: "ollama", "openai", "claude". Empty/unset = not configured yet —
 # analyze_reel() will fail clearly rather than fabricate a result.

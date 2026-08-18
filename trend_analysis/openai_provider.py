@@ -85,8 +85,8 @@ def _summarize_metadata(metadata: dict) -> str:
     return "\n".join(lines)
 
 
-def _encode_frame(frame_path: str) -> str:
-    with open(frame_path, "rb") as f:
+def _encode_image(image_path: str) -> str:
+    with open(image_path, "rb") as f:
         encoded = base64.b64encode(f.read()).decode("utf-8")
     return f"data:image/jpeg;base64,{encoded}"
 
@@ -122,7 +122,11 @@ def _validate_and_build_result(parsed: dict, reel_url: str) -> TrendAnalysisResu
     )
 
 
-def identify_trend(frames: List[str], metadata: dict, reel_url: str) -> TrendAnalysisResult:
+def identify_trend(image_paths: List[str], metadata: dict, reel_url: str) -> TrendAnalysisResult:
+    """image_paths is an ordered list of local image files — sampled video
+    frames, a single post image, or carousel slides. This function (and
+    OpenAI) never needs to know which.
+    """
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise ProviderError(
@@ -142,10 +146,10 @@ def identify_trend(frames: List[str], metadata: dict, reel_url: str) -> TrendAna
     user_prompt = build_user_prompt(caption, metadata_summary)
 
     content = [{"type": "input_text", "text": user_prompt}]
-    for frame_path in frames:
+    for image_path in image_paths:
         content.append({
             "type": "input_image",
-            "image_url": _encode_frame(frame_path),
+            "image_url": _encode_image(image_path),
             "detail": "auto",
         })
 

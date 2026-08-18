@@ -1,13 +1,31 @@
-"""Structured output schema for a single Reel's trend analysis.
+"""Structured output schema for a single Instagram content item's trend
+analysis (Reels and now /p/ posts — image, carousel, or video).
 
-This is a per-Reel TREND IDENTIFICATION result, not a virality/trend-
+This is a per-item TREND IDENTIFICATION result, not a virality/trend-
 detection result — see trend_identifier.py's module docstring for the
 distinction. Aggregating many of these into a virality signal is a future,
 separate batch stage.
+
+Note: reel_url/reel_id are kept as-is (not renamed to content_url/
+content_id) for /p/ posts too, to avoid an MVP-stage schema break — see
+analyze_reel.py's module docstring for the tradeoff this was weighed
+against.
 """
 
 from dataclasses import asdict, dataclass, field
 from typing import List, Optional
+
+
+@dataclass
+class VisualAsset:
+    """One ordered image ready for the trend identifier — the model never
+    needs to know whether it came from a sampled video frame, a single
+    post image, or a carousel slide.
+    """
+    path: str
+    media_type: str  # "video_frame" | "image"
+    source_index: int
+    timestamp: Optional[float] = None  # seconds, only for video_frame
 
 
 @dataclass
