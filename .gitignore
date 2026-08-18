@@ -10,4 +10,5 @@ screenshots/*
 !screenshots/.gitkeep
 browser_data/*
 !browser_data/.gitkeep
+*cookies*.txt
 .DS_Store

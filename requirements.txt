@@ -2,3 +2,4 @@ playwright
 openpyxl
 python-dotenv
 yt-dlp
+openai
