@@ -1,0 +1,13 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+venv/
+data/*.xlsx
+data/*.json
+data/*.jsonl
+screenshots/*
+!screenshots/.gitkeep
+browser_data/*
+!browser_data/.gitkeep
+.DS_Store
