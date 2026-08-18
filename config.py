@@ -11,3 +11,6 @@ OUTPUT_FILE = "data/reels.xlsx"
 SCREENSHOT_DIR = "screenshots"
 BROWSER_DATA_DIR = "browser_data"
 DEFAULT_DURATION_SECONDS = 300
+
+REELS_URL = "https://www.instagram.com/reels/"
+REEL_INTERVAL_SECONDS = 6

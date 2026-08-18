@@ -1,6 +1,7 @@
 import argparse
 
-from config import DEFAULT_DURATION_SECONDS, OUTPUT_FILE
+from config import DEFAULT_DURATION_SECONDS
+from scraper import open_authenticated_instagram
 
 
 def parse_args():
@@ -11,17 +12,14 @@ def parse_args():
         "--duration",
         type=int,
         default=DEFAULT_DURATION_SECONDS,
-        help=f"Collection duration in seconds (default: {DEFAULT_DURATION_SECONDS})",
+        help=f"Reels viewing duration in seconds (default: {DEFAULT_DURATION_SECONDS}).",
     )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-
-    print("Keywordless Trend Discovery MVP")
-    print(f"Duration: {args.duration} seconds")
-    print(f"Output: {OUTPUT_FILE}")
+    open_authenticated_instagram(args.duration)
 
 
 if __name__ == "__main__":
