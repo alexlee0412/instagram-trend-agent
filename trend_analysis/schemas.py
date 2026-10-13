@@ -1,15 +1,14 @@
-"""Structured output schema for a single Instagram content item's trend
-analysis (Reels and now /p/ posts — image, carousel, or video).
+"""Provider-neutral types for visual input and one-item trend analysis.
 
 This is a per-item TREND IDENTIFICATION result, not a virality/trend-
 detection result — see trend_identifier.py's module docstring for the
 distinction. Aggregating many of these into a virality signal is a future,
 separate batch stage.
 
-Note: reel_url/reel_id are kept as-is (not renamed to content_url/
-content_id) for /p/ posts too, to avoid an MVP-stage schema break — see
-analyze_reel.py's module docstring for the tradeoff this was weighed
-against.
+``TrendAnalysisResult.reel_url`` and ``reel_id`` are historical internal
+names retained for compatibility with the legacy Instagram entry point.
+The public ``./analyze.sh`` response exposes platform-neutral
+``content_url`` and ``content_id`` fields instead.
 """
 
 from dataclasses import asdict, dataclass, field
@@ -41,6 +40,8 @@ class VisualAsset:
 
 @dataclass
 class TrendAnalysisResult:
+    """Validated model result before it is mapped to the public response."""
+
     reel_url: str
     reel_id: Optional[str] = None
 

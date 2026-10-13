@@ -2,7 +2,7 @@
 
 import os
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 
 from .config import FRAME_COUNT, MAX_VISUAL_ASSETS
 from .frame_extractor import FrameExtractionError, extract_frames
@@ -12,6 +12,8 @@ from .schemas import VisualAsset, VisualContext
 
 @dataclass
 class PreparedVisuals:
+    """Model-ready images plus the semantics needed to interpret them."""
+
     assets: List[VisualAsset]
     visual_context: VisualContext
     incomplete_reasons: List[str] = field(default_factory=list)
@@ -38,7 +40,8 @@ def prepare_video_visuals(
     reasons = []
     if len(frame_paths) < frame_count:
         reasons.append(
-            f"only {len(frame_paths)} of {frame_count} requested video frames were extracted"
+            f"only {len(frame_paths)} of {frame_count} requested video "
+            "frames were extracted"
         )
     return PreparedVisuals(
         assets=[
@@ -66,11 +69,16 @@ def _prepare_carousel_visuals(
     items: List[MediaItem],
     work_dir: str,
 ) -> PreparedVisuals:
-    resolved = [item for item in items if item.media_type != "unresolved"]
+    resolved = [
+        item
+        for item in items
+        if item.media_type in ("image", "video") and item.path
+    ]
     reasons = []
     if len(resolved) < len(items):
         reasons.append(
-            f"{len(items) - len(resolved)} of {len(items)} carousel items could not be acquired"
+            f"{len(items) - len(resolved)} of {len(items)} carousel items "
+            "could not be acquired"
         )
     if not resolved:
         return PreparedVisuals(
@@ -121,7 +129,8 @@ def _prepare_carousel_visuals(
                 )
             except FrameExtractionError:
                 reasons.append(
-                    f"carousel video item {item.index} could not be converted to a frame"
+                    f"carousel video item {item.index} could not be converted "
+                    "to a frame"
                 )
                 continue
             assets.extend(prepared.assets)
@@ -130,16 +139,7 @@ def _prepare_carousel_visuals(
             )
             reasons.extend(prepared.incomplete_reasons)
 
-    has_images = "image" in item_types
-    has_video_frames = "video-derived frame" in item_types
-    if has_images and has_video_frames:
-        composition = "mixed image/video"
-    elif has_video_frames:
-        composition = "video"
-    elif has_images:
-        composition = "images"
-    else:
-        composition = "unknown"
+    composition = _carousel_composition(item_types)
 
     return PreparedVisuals(
         assets=assets,
@@ -158,9 +158,9 @@ def _prepare_carousel_visuals(
 
 
 def _prepare_media_fields(
-    video_path: str,
-    image_path: str,
-    items: list,
+    video_path: Optional[str],
+    image_path: Optional[str],
+    items: List[MediaItem],
     work_dir: str,
 ) -> PreparedVisuals:
     if video_path:
@@ -196,6 +196,19 @@ def _prepare_media_fields(
             sequence_description="no usable visual input was prepared",
         ),
     )
+
+
+def _carousel_composition(item_types: List[str]) -> str:
+    """Describe the media represented by prepared carousel assets."""
+    has_images = "image" in item_types
+    has_video_frames = "video-derived frame" in item_types
+    if has_images and has_video_frames:
+        return "mixed image/video"
+    if has_video_frames:
+        return "video"
+    if has_images:
+        return "images"
+    return "unknown"
 
 
 def prepare_media_visuals(

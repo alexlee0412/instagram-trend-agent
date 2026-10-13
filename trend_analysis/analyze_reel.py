@@ -6,7 +6,7 @@ analyze_reel(reel_url) is the reusable interface — the CLI
 
 is a thin wrapper around it. Works from a bare Instagram URL only;
 independent of the Playwright collector and of where the URL came from
-(Playwright, Apify, manual input, a spreadsheet, n8n).
+(Playwright, an API, manual input, or a spreadsheet).
 
 Accepts both Reel URLs (.../reel(s)/<ID>/) and post URLs (.../p/<ID>/ —
 single image, carousel, or video). Both feed the same identify_trend(...)
@@ -27,8 +27,8 @@ than crashing the whole post, and analysis_status is downgraded to
 for the investigation.
 
 stdout carries exactly one JSON object (the result) and nothing else, so
-tools like n8n can parse it directly. All progress/error logging goes to
-stderr.
+automation tools can parse it directly. All progress/error logging goes to
+stderr. New callers should use the root ``./analyze.sh`` interface instead.
 """
 
 import argparse
@@ -122,7 +122,10 @@ def analyze_reel(url: str) -> dict:
             if result.analysis_status == "success":
                 _log("[INFO] Trend identified successfully")
             else:
-                _log(f"[INFO] Trend identification completed with status: {result.analysis_status}")
+                _log(
+                    "[INFO] Trend identification completed with status: "
+                    f"{result.analysis_status}"
+                )
 
             # work_dir (any downloaded media + prepared assets) is deleted
             # on exit from this block, whether we return normally or an
@@ -153,7 +156,10 @@ def analyze_reel(url: str) -> dict:
 def _parse_args():
     parser = argparse.ArgumentParser(
         prog="python -m trend_analysis.analyze_reel",
-        description="Identify the cultural/social trend a single Instagram Reel or post belongs to.",
+        description=(
+            "Identify the cultural/social trend a single Instagram Reel or "
+            "post belongs to."
+        ),
     )
     parser.add_argument(
         "reel_url",

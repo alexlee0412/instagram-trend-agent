@@ -100,7 +100,11 @@ def _timestamp_to_iso8601(timestamp) -> Optional[str]:
     if timestamp is None:
         return None
     try:
-        return datetime.fromtimestamp(int(timestamp), tz=timezone.utc).astimezone().isoformat(timespec="seconds")
+        return (
+            datetime.fromtimestamp(int(timestamp), tz=timezone.utc)
+            .astimezone()
+            .isoformat(timespec="seconds")
+        )
     except (TypeError, ValueError, OSError):
         return None
 

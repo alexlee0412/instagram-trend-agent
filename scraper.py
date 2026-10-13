@@ -480,7 +480,10 @@ def _is_excluded_caption_text(text: str, username: Optional[str]) -> bool:
     return any(pattern.match(normalized) for pattern in CAPTION_EXCLUDE_PATTERNS)
 
 
-def _extract_caption_from_container(container: ElementHandle, username: Optional[str]) -> Optional[str]:
+def _extract_caption_from_container(
+    container: ElementHandle,
+    username: Optional[str],
+) -> Optional[str]:
     try:
         candidates = container.query_selector_all('[dir="auto"]')
     except Exception:
@@ -533,7 +536,10 @@ def _extract_audio_name_from_container(container: ElementHandle) -> Optional[str
     return None
 
 
-def _extract_label_text_from_container(container: ElementHandle, pattern: re.Pattern) -> Optional[str]:
+def _extract_label_text_from_container(
+    container: ElementHandle,
+    pattern: re.Pattern,
+) -> Optional[str]:
     """Search elements with a direct aria-label attribute (a stable,
     accessibility-driven attribute) for one matching the given count pattern.
     """
@@ -582,7 +588,9 @@ def _extract_current_reel(page: Page) -> Optional[dict]:
     audio_name = _extract_audio_name_from_container(container)
     view_count = normalize_count(_extract_label_text_from_container(container, VIEW_LABEL_PATTERN))
     like_count = normalize_count(_extract_label_text_from_container(container, LIKE_LABEL_PATTERN))
-    comment_count = normalize_count(_extract_label_text_from_container(container, COMMENT_LABEL_PATTERN))
+    comment_count = normalize_count(
+        _extract_label_text_from_container(container, COMMENT_LABEL_PATTERN)
+    )
 
     scrape_status = "success" if caption else "partial"
 

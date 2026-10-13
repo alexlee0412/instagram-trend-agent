@@ -22,6 +22,7 @@ from .ytdlp_utils import download_video, extract_info
 
 PUBLIC_USER_AGENT = "Mozilla/5.0"
 MAX_SYNDICATION_BYTES = 4 * 1024 * 1024
+SUPPORTED_MEDIA_TYPES = ("photo", "video", "animated_gif")
 
 
 def _syndication_url(content_id: str) -> str:
@@ -49,7 +50,9 @@ def _read_public_post(content_id: str) -> dict:
         ) from exc
 
     if len(body) > MAX_SYNDICATION_BYTES:
-        raise MediaAcquisitionError("X public post metadata was unexpectedly large")
+        raise MediaAcquisitionError(
+            "X public post metadata was unexpectedly large"
+        )
     try:
         post = json.loads(body)
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
@@ -235,6 +238,53 @@ def _download_syndication_items(
     return items, reasons
 
 
+def _try_extract_video_info(
+    content_url: str,
+    content_id: str,
+    work_dir: str,
+) -> Optional[dict]:
+    """Return yt-dlp metadata only when it belongs to this X status video."""
+    try:
+        info = extract_info(content_url, work_dir)
+    except MediaAcquisitionError:
+        return None
+    return info if _is_x_video_info(info, content_id) else None
+
+
+def _media_from_items(
+    metadata: dict,
+    items: list,
+    reasons: list,
+) -> AcquiredMedia:
+    """Map downloaded X media to the platform-neutral acquisition shape."""
+    usable = [item for item in items if item.media_type != "unresolved"]
+    if not usable:
+        raise MediaAcquisitionError(
+            "X post media was identified but could not be downloaded"
+        )
+
+    if len(items) == 1:
+        item = usable[0]
+        if item.media_type == "image":
+            return AcquiredMedia(
+                metadata=metadata,
+                image_path=item.path,
+                incomplete_reasons=reasons,
+            )
+        if item.media_type == "video":
+            return AcquiredMedia(
+                metadata=metadata,
+                video_path=item.path,
+                incomplete_reasons=reasons,
+            )
+
+    return AcquiredMedia(
+        metadata=metadata,
+        items=items,
+        incomplete_reasons=reasons,
+    )
+
+
 def load_x_post(
     content_url: str,
     content_id: str,
@@ -245,17 +295,13 @@ def load_x_post(
     details = [
         item for item in (post.get("mediaDetails") or [])
         if isinstance(item, dict)
-        and item.get("type") in ("photo", "video", "animated_gif")
+        and item.get("type") in SUPPORTED_MEDIA_TYPES
     ]
 
     # yt-dlp is probed even when syndication omits promoted/ad video media.
     # Reject non-Twitter extractor results so an external link in an image or
     # text post cannot be mistaken for the post's own visual media.
-    try:
-        video_info = extract_info(content_url, work_dir)
-    except MediaAcquisitionError:
-        video_info = None
-    has_ytdlp_video = _is_x_video_info(video_info, content_id)
+    video_info = _try_extract_video_info(content_url, content_id, work_dir)
 
     video_details = [
         item for item in details
@@ -263,7 +309,7 @@ def load_x_post(
     ]
     photo_details = [item for item in details if item.get("type") == "photo"]
 
-    if has_ytdlp_video and len(video_details) <= 1 and not photo_details:
+    if video_info and len(video_details) <= 1 and not photo_details:
         try:
             downloaded_info, video_path = download_video(content_url, work_dir)
             return AcquiredMedia(
@@ -282,35 +328,14 @@ def load_x_post(
         items, reasons = _download_syndication_items(
             details, content_url, work_dir,
         )
-        usable = [item for item in items if item.media_type != "unresolved"]
-        if not usable:
-            raise MediaAcquisitionError(
-                "X post media was identified but could not be downloaded"
-            )
         metadata = _merge_metadata(
             syndication_metadata,
-            video_info if has_ytdlp_video else None,
+            video_info,
             "x_public_syndication",
         )
-        if len(items) == 1 and usable[0].media_type == "image":
-            return AcquiredMedia(
-                metadata=metadata,
-                image_path=usable[0].path,
-                incomplete_reasons=reasons,
-            )
-        if len(items) == 1 and usable[0].media_type == "video":
-            return AcquiredMedia(
-                metadata=metadata,
-                video_path=usable[0].path,
-                incomplete_reasons=reasons,
-            )
-        return AcquiredMedia(
-            metadata=metadata,
-            items=items,
-            incomplete_reasons=reasons,
-        )
+        return _media_from_items(metadata, items, reasons)
 
-    if has_ytdlp_video:
+    if video_info:
         downloaded_info, video_path = download_video(content_url, work_dir)
         return AcquiredMedia(
             metadata=_merge_metadata(

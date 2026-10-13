@@ -1,9 +1,8 @@
-"""Configuration for the trend-analysis engine.
+"""Configuration for the URL-based trend-analysis engine.
 
-Deliberately independent of the root config.py — per the architecture
-principle, this engine must work from a bare Reel URL regardless of source
-(Playwright, Apify, manual input, a spreadsheet, n8n) and must not depend
-on the Playwright collector's live browser session to function.
+This module is deliberately independent of the root ``config.py`` used by
+the legacy Playwright collector. Public URL analysis must not depend on that
+collector's browser session.
 """
 
 import os
@@ -13,8 +12,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Optional: path to a manually-exported Netscape-format cookie file, used
-# only if set, to improve yt-dlp's Reel-fetch reliability for restricted
-# content. Never required — public Reels work without it.
+# only if explicitly set, to improve Instagram reliability for restricted
+# content. Normal public-content acquisition is anonymous.
 INSTAGRAM_COOKIES_FILE = os.getenv("TREND_ANALYSIS_COOKIES_FILE") or None
 
 YDL_SOCKET_TIMEOUT_SECONDS = 15

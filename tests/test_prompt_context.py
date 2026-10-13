@@ -1,9 +1,12 @@
+import os
+import tempfile
 import unittest
 from unittest.mock import patch
 
 from trend_analysis.openai_provider import (
     ProviderError,
     RESULT_JSON_SCHEMA,
+    _encode_image,
     _validate_and_build_result,
 )
 from trend_analysis.prompts import (
@@ -181,6 +184,18 @@ class StructuredResultTests(unittest.TestCase):
                 parsed,
                 "https://www.instagram.com/reel/example/",
             )
+
+
+class ImageEncodingTests(unittest.TestCase):
+    def test_image_data_url_uses_detected_png_mime_type(self):
+        with tempfile.TemporaryDirectory() as work_dir:
+            path = os.path.join(work_dir, "downloaded.jpg")
+            with open(path, "wb") as image:
+                image.write(b"\x89PNG\r\n\x1a\nfixture")
+
+            encoded = _encode_image(path)
+
+        self.assertTrue(encoded.startswith("data:image/png;base64,"))
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ Requires browser_data/ to already hold an authenticated session, i.e. you
 have run `python main.py` at least once and completed login.
 """
 
+import os
 import sys
 import time
 
@@ -27,7 +28,8 @@ COOKIE_DOMAIN_SUFFIX = "instagram.com"
 
 
 def _to_netscape_lines(cookies: list) -> list:
-    fallback_expiry = int(time.time()) + 86400 * 30  # 30 days; session cookies have no fixed expiry
+    # Session cookies have no fixed expiry in the browser response.
+    fallback_expiry = int(time.time()) + 86400 * 30
 
     lines = ["# Netscape HTTP Cookie File"]
     for cookie in cookies:
@@ -51,10 +53,30 @@ def _to_netscape_lines(cookies: list) -> list:
     return lines
 
 
+def _write_cookie_file(output_path: str, lines: list) -> None:
+    """Write session cookies with owner-only permissions, even on overwrite."""
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+
+    file_descriptor = os.open(output_path, flags, 0o600)
+    try:
+        os.fchmod(file_descriptor, 0o600)
+        with os.fdopen(file_descriptor, "w", encoding="utf-8") as output:
+            file_descriptor = None
+            output.write("\n".join(lines) + "\n")
+    finally:
+        if file_descriptor is not None:
+            os.close(file_descriptor)
+
+
 def main():
     output_path = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_OUTPUT_PATH
 
-    print(f"[INFO] Reading existing session from {BROWSER_DATA_DIR}...", file=sys.stderr)
+    print(
+        f"[INFO] Reading existing session from {BROWSER_DATA_DIR}...",
+        file=sys.stderr,
+    )
 
     with sync_playwright() as playwright:
         context = playwright.chromium.launch_persistent_context(
@@ -64,7 +86,11 @@ def main():
         cookies = context.cookies()
         context.close()
 
-    instagram_cookie_count = sum(1 for c in cookies if COOKIE_DOMAIN_SUFFIX in c.get("domain", ""))
+    instagram_cookie_count = sum(
+        1
+        for cookie in cookies
+        if COOKIE_DOMAIN_SUFFIX in cookie.get("domain", "")
+    )
     if instagram_cookie_count == 0:
         print(
             "[ERROR] No Instagram cookies found in browser_data/. "
@@ -74,11 +100,18 @@ def main():
         sys.exit(1)
 
     lines = _to_netscape_lines(cookies)
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines) + "\n")
+    _write_cookie_file(output_path, lines)
 
-    print(f"[INFO] Exported {instagram_cookie_count} Instagram cookie(s) to {output_path}", file=sys.stderr)
-    print(f"[INFO] Set TREND_ANALYSIS_COOKIES_FILE={output_path} in .env to use it.", file=sys.stderr)
+    print(
+        f"[INFO] Exported {instagram_cookie_count} Instagram cookie(s) "
+        f"to {output_path}",
+        file=sys.stderr,
+    )
+    print(
+        f"[INFO] Set TREND_ANALYSIS_COOKIES_FILE={output_path} in .env "
+        "to use it.",
+        file=sys.stderr,
+    )
 
 
 if __name__ == "__main__":

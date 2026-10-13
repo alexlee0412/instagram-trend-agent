@@ -1,22 +1,29 @@
 """Root URL router and shared one-item trend-analysis pipeline.
 
-URL classification is pure and network-free. Only implemented routes are
-allowed to enter acquisition, and all acquired media is normalized to ordered
-image assets before reaching the existing multimodal trend identifier.
+Canonical URL classification is local; recognized TikTok share links may be
+resolved before classification. Every implemented route returns platform-
+neutral acquired media before entering shared visual preparation and trend
+identification.
 
 stdout is reserved for one JSON result. Operational logging goes to stderr.
 """
 
 import argparse
 import json
-import re
 import sys
 import tempfile
-from datetime import datetime, timezone
-from typing import Optional, Tuple
+from typing import Callable, Dict, Tuple
 
 from .frame_extractor import FrameExtractionError
 from .media import AcquiredMedia, MediaAcquisitionError, MediaItem
+from .output import (
+    base_result,
+    empty_metadata,
+    empty_trend,
+    normalize_analysis_input,
+    normalize_metadata,
+    trend_payload,
+)
 from .platforms.tiktok_loader import load_tiktok_video
 from .platforms.x_loader import load_x_post
 from .reel_loader import ReelLoadError, load_post, load_reel
@@ -26,29 +33,11 @@ from .url_classifier import (
     URLClassificationError,
     classify_url_with_redirects,
 )
-from .visual_preparation import (
-    PreparedVisuals,
-    prepare_media_visuals,
-)
+from .visual_preparation import prepare_media_visuals
 
 
 # Compatibility alias for Phase 1 callers that imported this name.
 URLAnalysisError = URLClassificationError
-
-TREND_FIELDS = (
-    "trend_name",
-    "trend_category",
-    "confidence",
-    "content_summary",
-    "content_format",
-    "event_context",
-    "subjects",
-    "activities",
-    "objects",
-    "visual_aesthetic",
-    "cultural_signals",
-    "evidence",
-)
 
 
 def _log(message: str) -> None:
@@ -64,147 +53,6 @@ def detect_url(url: str) -> Tuple[str, str, str, str]:
         route.content_id,
         route.canonical_url,
     )
-
-
-def _safe_number(value):
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    return value
-
-
-def _upload_date(metadata: dict) -> Optional[str]:
-    value = metadata.get("upload_date")
-    if isinstance(value, str) and value:
-        if re.fullmatch(r"\d{8}", value):
-            return f"{value[:4]}-{value[4:6]}-{value[6:]}"
-        return value
-
-    timestamp = metadata.get("timestamp")
-    if isinstance(timestamp, (int, float)) and not isinstance(timestamp, bool):
-        try:
-            return datetime.fromtimestamp(
-                timestamp, tz=timezone.utc,
-            ).date().isoformat()
-        except (OSError, OverflowError, ValueError):
-            pass
-    return None
-
-
-def _hashtags(metadata: dict) -> list:
-    result = []
-    seen = set()
-    values = metadata.get("tags")
-    if isinstance(values, list):
-        candidates = [str(value).lstrip("#") for value in values]
-    else:
-        candidates = []
-    description = metadata.get("description")
-    candidates.extend(
-        re.findall(r"#([\w]+)", description or "", flags=re.UNICODE)
-    )
-
-    for candidate in candidates:
-        key = candidate.casefold()
-        if candidate and key not in seen:
-            seen.add(key)
-            result.append(candidate)
-    return result
-
-
-def _audio(metadata: dict):
-    audio = metadata.get("audio")
-    if isinstance(audio, dict):
-        normalized = {
-            key: audio.get(key)
-            for key in ("artist_name", "song_name", "uses_original_audio")
-            if audio.get(key) is not None
-        }
-        return normalized or None
-
-    track = metadata.get("track")
-    artist = metadata.get("artist") or metadata.get("creator")
-    if track or artist:
-        return {"artist_name": artist, "song_name": track}
-    return None
-
-
-def normalize_metadata(metadata: dict) -> dict:
-    """Keep only stable, useful source fields for the public result."""
-    return {
-        "uploader": metadata.get("channel") or metadata.get("uploader"),
-        "description": metadata.get("description"),
-        "upload_date": _upload_date(metadata),
-        "duration": _safe_number(metadata.get("duration")),
-        "view_count": _safe_number(metadata.get("view_count")),
-        "like_count": _safe_number(metadata.get("like_count")),
-        "comment_count": _safe_number(metadata.get("comment_count")),
-        "hashtags": _hashtags(metadata),
-        "audio": _audio(metadata),
-    }
-
-
-def normalize_analysis_input(prepared: PreparedVisuals) -> dict:
-    """Describe the visual material actually supplied to the analyzer.
-
-    This is intentionally separate from platform ``content_type``: a Reel
-    and a video Post are different platform objects, but both reach the model
-    as chronological video frames.
-    """
-    context = prepared.visual_context
-    return {
-        "visual": {
-            "source_type": context.source_type,
-            "ordered": context.ordered,
-            "asset_count": len(prepared.assets),
-            "media_composition": context.media_composition,
-            "item_types": list(context.item_types),
-        },
-    }
-
-
-def _empty_metadata() -> dict:
-    return {
-        "uploader": None,
-        "description": None,
-        "upload_date": None,
-        "duration": None,
-        "view_count": None,
-        "like_count": None,
-        "comment_count": None,
-        "hashtags": [],
-        "audio": None,
-    }
-
-
-def _empty_trend() -> dict:
-    return {
-        "trend_name": None,
-        "trend_category": None,
-        "confidence": None,
-        "content_summary": None,
-        "content_format": [],
-        "event_context": [],
-        "subjects": [],
-        "activities": [],
-        "objects": [],
-        "visual_aesthetic": [],
-        "cultural_signals": [],
-        "evidence": [],
-    }
-
-
-def _base_result(url: str, route: Optional[ClassifiedURL] = None) -> dict:
-    return {
-        "platform": route.platform if route else None,
-        "content_type": route.content_type if route else None,
-        "content_url": route.canonical_url if route else url,
-        "content_id": route.content_id if route else None,
-        "analysis_input": None,
-        "metadata": None,
-        "trend": None,
-        "analysis_status": "error",
-        "analysis_error": None,
-    }
 
 
 def _acquire_instagram_reel(
@@ -265,9 +113,7 @@ def _acquire_tiktok(
     work_dir: str,
 ) -> AcquiredMedia:
     _log("[INFO] Acquiring public TikTok video and metadata...")
-    return load_tiktok_video(
-        route.canonical_url, route.content_id, work_dir,
-    )
+    return load_tiktok_video(route.canonical_url, route.content_id, work_dir)
 
 
 def _acquire_x(
@@ -278,7 +124,9 @@ def _acquire_x(
     return load_x_post(route.canonical_url, route.content_id, work_dir)
 
 
-PLATFORM_ACQUIRERS = {
+Acquirer = Callable[[ClassifiedURL, str], AcquiredMedia]
+
+PLATFORM_ACQUIRERS: Dict[Tuple[str, str], Acquirer] = {
     ("instagram", "reel"): _acquire_instagram_reel,
     ("instagram", "post"): _acquire_instagram_post,
     ("tiktok", "video"): _acquire_tiktok,
@@ -291,12 +139,12 @@ def analyze_url(url: str) -> dict:
     try:
         route = classify_url_with_redirects(url)
     except URLClassificationError as exc:
-        result = _base_result(url)
+        result = base_result(url)
         result["analysis_error"] = str(exc)
         _log(f"[ERROR] {exc}")
         return result
 
-    result = _base_result(url, route)
+    result = base_result(url, route)
     _log(f"[INFO] Identified platform: {route.platform}")
     _log(f"[INFO] Identified content type: {route.content_type}")
 
@@ -308,8 +156,8 @@ def analyze_url(url: str) -> dict:
         _log(f"[ERROR] {result['analysis_error']}")
         return result
 
-    result["metadata"] = _empty_metadata()
-    result["trend"] = _empty_trend()
+    result["metadata"] = empty_metadata()
+    result["trend"] = empty_trend()
 
     try:
         with tempfile.TemporaryDirectory(prefix="trend_analysis_") as work_dir:
@@ -357,10 +205,7 @@ def analyze_url(url: str) -> dict:
                 route.canonical_url,
                 prepared.visual_context,
             )
-            result["trend"] = {
-                field: getattr(trend_result, field)
-                for field in TREND_FIELDS
-            }
+            result["trend"] = trend_payload(trend_result)
 
             trend_status = trend_result.analysis_status
             if trend_status == "success" and prepared.incomplete_reasons:

@@ -1,8 +1,8 @@
-"""Fetches Instagram content (Reels, and now /p/ posts).
+"""Acquire public Instagram Reels and ``/p/`` posts.
 
 Independent of the Playwright collector: works from a bare content URL
 only. Never writes into the repository — callers pass a temporary
-work_dir and are responsible for its lifecycle (see analyze_reel.py).
+work_dir and are responsible for its lifecycle (see analyze_url.py).
 
 Reels use anonymous yt-dlp first. Instagram frequently gates that path even
 for public content, so Reel acquisition falls back to Instagram's public
@@ -50,12 +50,13 @@ REEL_URL_PATTERN = re.compile(
 # [^/?#]+ matching up to the first /, ?, or # — so they're naturally
 # normalized away.
 CONTENT_URL_PATTERN = re.compile(
-    r"^https?://(?:www\.)?instagram\.com/(?:[^/]+/)?(?P<kind>reels?(?!/audio/)|p)/(?P<id>[^/?#]+)/?"
+    r"^https?://(?:www\.)?instagram\.com/(?:[^/]+/)?"
+    r"(?P<kind>reels?(?!/audio/)|p)/(?P<id>[^/?#]+)/?"
 )
 
 
 class ReelLoadError(Exception):
-    """Raised when a Reel URL is invalid or yt-dlp can't fetch it."""
+    """Raised when supported Instagram content cannot be acquired."""
 
 
 @dataclass
@@ -345,7 +346,7 @@ class PostMedia:
 def validate_content_url(url: str):
     """Return (content_kind, shortcode) where content_kind is "reel" or
     "post", or raise ReelLoadError. Superset of validate_reel_url, used
-    for the initial Reel-vs-post routing decision in analyze_reel.py.
+    for compatibility with the legacy Instagram-specific entry point.
     """
     if not url or not isinstance(url, str):
         raise ReelLoadError("Content URL is missing or not a string")

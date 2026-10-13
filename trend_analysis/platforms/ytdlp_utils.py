@@ -49,7 +49,9 @@ def extract_info(url: str, work_dir: str) -> dict:
         with YoutubeDL(ytdlp_options(work_dir, download=False)) as ydl:
             info = ydl.extract_info(url, download=False)
     except Exception as exc:
-        raise MediaAcquisitionError(f"Anonymous yt-dlp extraction failed: {exc}") from exc
+        raise MediaAcquisitionError(
+            f"Anonymous yt-dlp extraction failed: {exc}"
+        ) from exc
     if not isinstance(info, dict):
         raise MediaAcquisitionError("Anonymous yt-dlp returned no metadata")
     return info
@@ -100,7 +102,9 @@ def download_video(url: str, work_dir: str) -> Tuple[dict, str]:
     except MediaAcquisitionError:
         raise
     except Exception as exc:
-        raise MediaAcquisitionError(f"Anonymous yt-dlp download failed: {exc}") from exc
+        raise MediaAcquisitionError(
+            f"Anonymous yt-dlp download failed: {exc}"
+        ) from exc
 
     if not path:
         raise MediaAcquisitionError(

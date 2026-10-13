@@ -10,7 +10,7 @@ anywhere else in trend_analysis.
 
 Only the OpenAI provider is implemented so far (see openai_provider.py).
 Claude/Ollama intentionally still raise ModelNotConfiguredError rather
-than fabricating a result — see analyze_reel.py, which turns any of these
+than fabricating a result — see analyze_url.py, which turns any of these
 into a clean analysis_status="error" JSON response instead of crashing or
 faking a trend.
 """
@@ -38,6 +38,7 @@ def identify_trend(
     """Analyze normalized visuals and return a structured result."""
     if TREND_MODEL_PROVIDER == "openai":
         from . import openai_provider
+
         return openai_provider.identify_trend(
             image_paths, metadata, content_url, visual_context,
         )

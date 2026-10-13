@@ -9,7 +9,7 @@ Reusable URL-router interface:
     from trend_analysis.analyze_url import analyze_url
     analyze_url(url: str) -> dict
 
-Legacy Instagram-specific interface:
+Legacy Instagram-specific compatibility interface:
 
     from trend_analysis.analyze_reel import analyze_reel
     analyze_reel(reel_url: str) -> dict

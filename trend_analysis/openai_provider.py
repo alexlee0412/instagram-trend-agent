@@ -64,22 +64,19 @@ LIST_FIELDS = (
 
 
 class ProviderError(Exception):
-    """Raised for any OpenAI-provider-specific failure (missing key,
-    missing package, timeout, malformed response, failed validation).
-    Callers treat this as an enrichment failure, never a crash.
-    """
+    """Raised when provider setup, transport, or response validation fails."""
 
 
 def _summarize_metadata(metadata: dict) -> str:
-    """Extract only the minimal useful fields from yt-dlp's (large) info
-    dict. Never send the raw dict — it includes CDN URLs, format lists,
-    and other irrelevant fields.
-    """
+    """Extract useful fields without forwarding raw extractor metadata."""
     timestamp = metadata.get("timestamp")
     posted_at = None
     if timestamp:
         try:
-            posted_at = datetime.fromtimestamp(int(timestamp), tz=timezone.utc).isoformat()
+            posted_at = datetime.fromtimestamp(
+                int(timestamp),
+                tz=timezone.utc,
+            ).isoformat()
         except (TypeError, ValueError, OSError):
             posted_at = None
 
@@ -94,20 +91,49 @@ def _summarize_metadata(metadata: dict) -> str:
     return "\n".join(lines)
 
 
+def _image_mime_type(data: bytes, image_path: str) -> str:
+    """Detect supported image types from bytes, then use a safe extension fallback."""
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        return "image/webp"
+
+    extension = os.path.splitext(image_path)[1].lower()
+    return {
+        ".gif": "image/gif",
+        ".jpeg": "image/jpeg",
+        ".jpg": "image/jpeg",
+        ".png": "image/png",
+        ".webp": "image/webp",
+    }.get(extension, "image/jpeg")
+
+
 def _encode_image(image_path: str) -> str:
     with open(image_path, "rb") as f:
-        encoded = base64.b64encode(f.read()).decode("utf-8")
-    return f"data:image/jpeg;base64,{encoded}"
+        data = f.read()
+    mime_type = _image_mime_type(data, image_path)
+    encoded = base64.b64encode(data).decode("ascii")
+    return f"data:{mime_type};base64,{encoded}"
 
 
-def _validate_and_build_result(parsed: dict, reel_url: str) -> TrendAnalysisResult:
+def _validate_and_build_result(
+    parsed: dict,
+    content_url: str,
+) -> TrendAnalysisResult:
     trend_name = parsed.get("trend_name")
     if not isinstance(trend_name, str) or not trend_name.strip():
         raise ProviderError("Model response missing a usable trend_name")
 
     confidence = parsed.get("confidence")
     if not isinstance(confidence, (int, float)) or not (0 <= confidence <= 1):
-        raise ProviderError(f"Model response had an invalid confidence value: {confidence!r}")
+        raise ProviderError(
+            "Model response had an invalid confidence value: "
+            f"{confidence!r}"
+        )
 
     for field in LIST_FIELDS:
         if not isinstance(parsed.get(field), list):
@@ -118,7 +144,7 @@ def _validate_and_build_result(parsed: dict, reel_url: str) -> TrendAnalysisResu
             )
 
     return TrendAnalysisResult(
-        reel_url=reel_url,
+        reel_url=content_url,
         trend_name=trend_name.strip(),
         trend_category=str(parsed.get("trend_category") or "").strip() or None,
         confidence=float(confidence),
@@ -139,14 +165,15 @@ def _validate_and_build_result(parsed: dict, reel_url: str) -> TrendAnalysisResu
 def identify_trend(
     image_paths: List[str],
     metadata: dict,
-    reel_url: str,
+    content_url: str,
     visual_context: VisualContext,
 ) -> TrendAnalysisResult:
     """Analyze ordered images with explicit provider-neutral media context."""
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise ProviderError(
-            "OPENAI_API_KEY is not set. Add it to .env to use the OpenAI trend-identification provider."
+            "OPENAI_API_KEY is not set. Add it to .env to use the OpenAI "
+            "trend-identification provider."
         )
 
     try:
@@ -206,4 +233,4 @@ def identify_trend(
     except json.JSONDecodeError as exc:
         raise ProviderError(f"OpenAI response was not valid JSON: {exc}") from exc
 
-    return _validate_and_build_result(parsed, reel_url)
+    return _validate_and_build_result(parsed, content_url)
