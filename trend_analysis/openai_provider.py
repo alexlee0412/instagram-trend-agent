@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from typing import List
 
 from .prompts import TREND_IDENTIFICATION_SYSTEM_PROMPT, build_user_prompt
-from .schemas import TrendAnalysisResult
+from .schemas import TrendAnalysisResult, VisualContext
 
 # "terra" balances reasoning quality against cost for a single-image-set
 # call; override with OPENAI_TREND_MODEL if a different tier is preferred.
@@ -32,6 +32,14 @@ RESULT_JSON_SCHEMA = {
         "trend_category": {"type": "string"},
         "confidence": {"type": "number"},
         "content_summary": {"type": "string"},
+        "content_format": {
+            "type": "array",
+            "description": (
+                "Reusable presentation, editing, sequencing, or interaction "
+                "structures only; empty when none are present."
+            ),
+            "items": {"type": "string"},
+        },
         "event_context": {"type": "array", "items": {"type": "string"}},
         "subjects": {"type": "array", "items": {"type": "string"}},
         "activities": {"type": "array", "items": {"type": "string"}},
@@ -42,6 +50,7 @@ RESULT_JSON_SCHEMA = {
     },
     "required": [
         "trend_name", "trend_category", "confidence", "content_summary",
+        "content_format",
         "event_context", "subjects", "activities", "objects",
         "visual_aesthetic", "cultural_signals", "evidence",
     ],
@@ -49,7 +58,7 @@ RESULT_JSON_SCHEMA = {
 }
 
 LIST_FIELDS = (
-    "event_context", "subjects", "activities", "objects",
+    "content_format", "event_context", "subjects", "activities", "objects",
     "visual_aesthetic", "cultural_signals", "evidence",
 )
 
@@ -103,6 +112,10 @@ def _validate_and_build_result(parsed: dict, reel_url: str) -> TrendAnalysisResu
     for field in LIST_FIELDS:
         if not isinstance(parsed.get(field), list):
             raise ProviderError(f"Model response field '{field}' was not a list")
+        if any(not isinstance(item, str) for item in parsed[field]):
+            raise ProviderError(
+                f"Model response field '{field}' contained a non-string item"
+            )
 
     return TrendAnalysisResult(
         reel_url=reel_url,
@@ -110,6 +123,7 @@ def _validate_and_build_result(parsed: dict, reel_url: str) -> TrendAnalysisResu
         trend_category=str(parsed.get("trend_category") or "").strip() or None,
         confidence=float(confidence),
         content_summary=str(parsed.get("content_summary") or "").strip() or None,
+        content_format=parsed["content_format"],
         event_context=parsed["event_context"],
         subjects=parsed["subjects"],
         activities=parsed["activities"],
@@ -122,11 +136,13 @@ def _validate_and_build_result(parsed: dict, reel_url: str) -> TrendAnalysisResu
     )
 
 
-def identify_trend(image_paths: List[str], metadata: dict, reel_url: str) -> TrendAnalysisResult:
-    """image_paths is an ordered list of local image files — sampled video
-    frames, a single post image, or carousel slides. This function (and
-    OpenAI) never needs to know which.
-    """
+def identify_trend(
+    image_paths: List[str],
+    metadata: dict,
+    reel_url: str,
+    visual_context: VisualContext,
+) -> TrendAnalysisResult:
+    """Analyze ordered images with explicit provider-neutral media context."""
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise ProviderError(
@@ -140,10 +156,17 @@ def identify_trend(image_paths: List[str], metadata: dict, reel_url: str) -> Tre
             "The 'openai' package is not installed. Run `pip install openai`."
         ) from exc
 
-    model = os.getenv("OPENAI_TREND_MODEL", DEFAULT_MODEL)
+    # An empty value is common when .env was copied from .env.example.
+    # Treat blank/whitespace overrides as unset instead of sending an empty
+    # model name to the API.
+    model = (os.getenv("OPENAI_TREND_MODEL") or "").strip() or DEFAULT_MODEL
     caption = metadata.get("description")
     metadata_summary = _summarize_metadata(metadata)
-    user_prompt = build_user_prompt(caption, metadata_summary)
+    user_prompt = build_user_prompt(
+        caption,
+        metadata_summary,
+        visual_context.to_dict(),
+    )
 
     content = [{"type": "input_text", "text": user_prompt}]
     for image_path in image_paths:

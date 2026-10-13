@@ -83,6 +83,6 @@ def extract_frames(video_path: str, output_dir: str, frame_count: int = 5) -> Li
             frame_paths.append(frame_path)
 
     if not frame_paths:
-        raise FrameExtractionError("ffmpeg failed to extract any frames from the Reel video")
+        raise FrameExtractionError("ffmpeg failed to extract any frames from the source video")
 
     return frame_paths

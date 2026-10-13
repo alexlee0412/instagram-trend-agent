@@ -33,96 +33,23 @@ stderr.
 
 import argparse
 import json
-import os
 import sys
 import tempfile
-from typing import List
 
-from .config import FRAME_COUNT, MAX_VISUAL_ASSETS
-from .frame_extractor import FrameExtractionError, extract_frames
+from .frame_extractor import FrameExtractionError
 from .reel_loader import (
-    CarouselItem,
-    PostMedia,
     ReelLoadError,
     load_post,
     load_reel,
     validate_content_url,
 )
-from .schemas import TrendAnalysisResult, VisualAsset
+from .schemas import TrendAnalysisResult
 from .trend_identifier import ModelNotConfiguredError, ProviderError, identify_trend
+from .visual_preparation import prepare_post_visuals, prepare_video_visuals
 
 
 def _log(message: str):
     print(message, file=sys.stderr)
-
-
-def _select_carousel_indices(total: int, max_assets: int) -> List[int]:
-    """Deterministically pick up to max_assets positions from range(total),
-    always including the first and last, evenly spaced between them —
-    never random, so the same post always selects the same slides.
-    """
-    if total <= max_assets:
-        return list(range(total))
-    if max_assets <= 1:
-        return [0]
-
-    step = (total - 1) / (max_assets - 1)
-    indices = sorted({round(i * step) for i in range(max_assets)})
-    return indices
-
-
-def _build_reel_visual_assets(video_path: str, work_dir: str) -> List[VisualAsset]:
-    frame_paths = extract_frames(video_path, work_dir, frame_count=FRAME_COUNT)
-    return [
-        VisualAsset(path=path, media_type="video_frame", source_index=0, timestamp=None)
-        for path in frame_paths
-    ]
-
-
-def _build_post_visual_assets(post: PostMedia, work_dir: str) -> List[VisualAsset]:
-    if post.video_path:
-        return _build_reel_visual_assets(post.video_path, work_dir)
-
-    if post.image_path:
-        return [VisualAsset(path=post.image_path, media_type="image", source_index=0, timestamp=None)]
-
-    if post.carousel_items:
-        return _build_carousel_visual_assets(post.carousel_items, work_dir)
-
-    return []
-
-
-def _build_carousel_visual_assets(items: List[CarouselItem], work_dir: str) -> List[VisualAsset]:
-    resolved = [item for item in items if item.media_type != "unresolved"]
-    if not resolved:
-        return []
-
-    selected_positions = _select_carousel_indices(len(resolved), MAX_VISUAL_ASSETS)
-    selected = [resolved[i] for i in selected_positions]
-
-    assets = []
-    for item in selected:
-        if item.media_type == "image":
-            assets.append(VisualAsset(
-                path=item.path, media_type="image", source_index=item.index, timestamp=None,
-            ))
-        elif item.media_type == "video":
-            # One representative midpoint frame per video slide — never
-            # expand a single carousel item into multiple frames, which
-            # would overweight it relative to image slides.
-            frame_dir = os.path.join(work_dir, f"carousel_{item.index}_frames")
-            os.makedirs(frame_dir, exist_ok=True)
-            try:
-                frame_paths = extract_frames(item.path, frame_dir, frame_count=1)
-            except FrameExtractionError:
-                continue
-            if frame_paths:
-                assets.append(VisualAsset(
-                    path=frame_paths[0], media_type="video_frame",
-                    source_index=item.index, timestamp=None,
-                ))
-
-    return assets
 
 
 def analyze_reel(url: str) -> dict:
@@ -138,7 +65,7 @@ def analyze_reel(url: str) -> dict:
         content_kind, content_id = validate_content_url(url)
 
         with tempfile.TemporaryDirectory(prefix="trend_analysis_") as work_dir:
-            partial_reason = None
+            partial_reasons = []
 
             if content_kind == "reel":
                 _log("[INFO] Fetching Reel metadata/video via yt-dlp...")
@@ -149,11 +76,10 @@ def analyze_reel(url: str) -> dict:
                     raise ReelLoadError("yt-dlp did not return a downloadable video for this Reel")
 
                 _log("[INFO] Extracting representative frames...")
-                assets = _build_reel_visual_assets(reel.video_path, work_dir)
+                prepared = prepare_video_visuals(reel.video_path, work_dir)
+                assets = prepared.assets
+                partial_reasons.extend(prepared.incomplete_reasons)
                 metadata = reel.metadata
-
-                if len(assets) < FRAME_COUNT:
-                    partial_reason = "fewer video frames extracted than requested"
 
             else:
                 _log("[INFO] Fetching post metadata/media via yt-dlp...")
@@ -164,11 +90,12 @@ def analyze_reel(url: str) -> dict:
                     total = len(post.carousel_items)
                     resolved = sum(1 for i in post.carousel_items if i.media_type != "unresolved")
                     _log(f"[INFO] Carousel: {resolved}/{total} slide(s) resolved to usable media")
-                    if resolved < total:
-                        partial_reason = f"{total - resolved} of {total} carousel slide(s) could not be fetched"
 
                 _log("[INFO] Preparing representative visual asset(s)...")
-                assets = _build_post_visual_assets(post, work_dir)
+                prepared = prepare_post_visuals(post, work_dir)
+                assets = prepared.assets
+                partial_reasons.extend(prepared.incomplete_reasons)
+                partial_reasons.extend(post.incomplete_reasons or [])
 
             if not assets:
                 raise ReelLoadError("No usable visual assets could be extracted from this content")
@@ -177,12 +104,20 @@ def analyze_reel(url: str) -> dict:
 
             _log("[INFO] Running trend identification...")
             image_paths = [asset.path for asset in assets]
-            result = identify_trend(image_paths, metadata, url)
+            result = identify_trend(
+                image_paths,
+                metadata,
+                url,
+                prepared.visual_context,
+            )
             result.reel_id = content_id
 
-            if result.analysis_status == "success" and partial_reason:
+            if result.analysis_status == "success" and partial_reasons:
                 result.analysis_status = "partial"
-                _log(f"[INFO] Marking result partial: {partial_reason}")
+                _log(
+                    "[INFO] Marking result partial: "
+                    + "; ".join(partial_reasons)
+                )
 
             if result.analysis_status == "success":
                 _log("[INFO] Trend identified successfully")

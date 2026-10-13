@@ -28,6 +28,9 @@ FRAME_COUNT = 5
 MAX_VISUAL_ASSETS = 6
 
 # Which multimodal model provider identify_trend() should use.
-# One of: "ollama", "openai", "claude". Empty/unset = not configured yet —
-# analyze_reel() will fail clearly rather than fabricate a result.
-TREND_MODEL_PROVIDER = os.getenv("TREND_MODEL_PROVIDER", "").strip().lower()
+# OpenAI is the only implemented provider, so it is also the default. This
+# keeps a copied older .env (where TREND_MODEL_PROVIDER may be blank) working
+# with the documented root CLI as long as OPENAI_API_KEY is configured.
+TREND_MODEL_PROVIDER = (
+    (os.getenv("TREND_MODEL_PROVIDER") or "").strip().lower() or "openai"
+)

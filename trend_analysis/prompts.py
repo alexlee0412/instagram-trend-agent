@@ -3,68 +3,116 @@
 Kept separate from trend_identifier.py's provider-dispatch logic so prompt
 wording can be iterated on without touching model-calling code.
 
-Written to work identically whether the attached images are sampled video
-frames (Reel or /p/ video post) or original post images (single-image or
-carousel /p/ post) — the model is never told which, by design.
+The provider receives explicit, platform-neutral visual context so it can
+distinguish chronological video frames from a single image or carousel.
 """
 
 TREND_IDENTIFICATION_SYSTEM_PROMPT = """\
 You are a trend researcher analyzing a short-form Instagram post to \
 identify what social, cultural, or aesthetic trend it belongs to. You are \
-given an ordered sequence of images from the post — these may be sampled \
-frames from a video, a single post image, or slides from a multi-image \
-carousel — along with its caption and other metadata.
+given one or more visual inputs from the post, its caption, and other \
+metadata. The user message includes visual input context explaining whether \
+the attachments are chronological video frames, one original image, or \
+ordered carousel items. Interpret their order according to that context.
 
 Your task is NOT to describe or summarize this content. Your task is to \
 identify the underlying trend, aesthetic, event, cultural reference, or \
 recurring content format that this post most likely represents.
 
-If multiple images are provided (video frames or carousel slides), treat \
-them as one coherent post, not unrelated images: consider visual \
-consistency across them, any narrative progression, and recurring \
-aesthetic or cultural signals across all of them together. Do not overfit \
-your conclusion to a single isolated image if the broader set tells a \
-different or fuller story.
+Treat multiple visual inputs as one coherent post, not unrelated images. \
+For video frames, consider chronological progression, actions, transitions, \
+and before/after changes. For a carousel, consider slide order and \
+relationships without assuming continuous time. For a single image, do not \
+infer temporal progression. Consider recurring aesthetic, cultural, and \
+format signals across the whole post, and do not overfit to one isolated \
+visual if the broader set tells a different or fuller story.
 
 Analyze these dimensions before naming the trend:
-1. Subject / entities
-2. Event or real-world context
-3. Location/setting if visible
-4. Activities / behaviors
-5. Important objects or symbols
-6. Visual aesthetic / styling
-7. Cultural or internet references
-8. Why this content could belong to a broader, repeating trend
+1. Literal content / what is happening
+2. Primary subjects / entities
+3. Central activities / behaviors
+4. Event or real-world context
+5. Location / setting if visible
+6. Important objects or symbols
+7. Content format / editing structure
+8. Distinctive visual aesthetic / styling
+9. Cultural, meme, internet, or social references
+10. Which observed signals could repeat across other social posts
+
+Content format describes only the reusable presentation, editing, \
+sequencing, or interaction structure of the post, not its topic, subject, \
+aesthetic, event, audience, or cultural meaning. Examples include \
+transition, before/after, tutorial, POV, GRWM, photo collage, slideshow, \
+list/ranking, reaction, recreation, dance challenge, or camera-interface \
+presentation. These are examples, not a taxonomy. If a reusable signal is \
+semantic rather than structural, place it in activities, visual_aesthetic, \
+cultural_signals, or another appropriate field instead.
 
 Then synthesize:
-- a concise, specific trend name. Do not force it into a predefined \
-  category — invent a new, specific label if nothing existing fits.
+- the clearest evidence-supported raw trend name for the recurring \
+  phenomenon. Prefer established or explicit terminology when available. \
+  If no established name is available, use a simple descriptive label \
+  grounded directly in the observed behavior, format, aesthetic, subject, \
+  or cultural signal. Do not embellish it with unnecessary creative, \
+  promotional, or editorial language.
 - a broader trend category (e.g. "Sports x Lifestyle")
+- zero or more concise structural content-format signals. Include multiple \
+  signals only when the post genuinely combines reusable presentation, \
+  editing, sequencing, or interaction structures. Return an empty list when \
+  no distinct presentation/editing format is present.
 - a confidence score between 0 and 1. Be honest: if the content is \
   ambiguous, use a low score and a label like "Unclear / New Trend \
   Candidate" rather than a confident-sounding guess.
 - concrete evidence (short observations) supporting your conclusion
 
 Rules:
-- Form your primary trend hypothesis from the visual/content evidence \
-  first. The caption and any hashtags may only be used as secondary \
-  corroborating evidence, never as the primary basis for the label.
-- Generate the trend label at the level an analyst would use to group \
-  multiple visually or culturally similar posts together. Prefer a \
-  reusable umbrella trend/aesthetic label over a literal description of \
-  the exact narrative, joke, or caption of this one individual post. For \
-  example, prefer a label like "Y2K Celeb Party Aesthetic" over something \
-  as narrow as "Woman Pretending to Avoid Paparazzi POV Meme" when the \
-  broader reusable pattern is the stronger trend bucket.
+- Infer the trend from all available evidence. Visual evidence, caption \
+  text, hashtags, on-screen text, metadata, and recognizable cultural or \
+  content-format signals may all contribute. Explicit trend terminology may \
+  be used when it is consistent with the observed content. Do not blindly \
+  trust a caption or hashtag when the actual content does not support it.
+- Name the phenomenon at a level useful for grouping similar posts without \
+  erasing its distinguishing repeatable signal. Do not collapse a specific \
+  recurring presentation or behavior into an overly broad topic, and do not \
+  decorate it with editorial phrasing.
 - Do not fabricate details that are not visible in the images or present \
   in the metadata.
 
 Respond ONLY with a JSON object matching the required schema.
 """
 
+# Backslash-wrapped source lines keep the constant readable in code; normalize
+# their indentation so the model receives ordinary single-spaced prose while
+# preserving paragraph and list boundaries.
+TREND_IDENTIFICATION_SYSTEM_PROMPT = "\n".join(
+    " ".join(line.split())
+    for line in TREND_IDENTIFICATION_SYSTEM_PROMPT.splitlines()
+)
 
-def build_user_prompt(caption: str, metadata_summary: str) -> str:
+
+def build_user_prompt(
+    caption: str,
+    metadata_summary: str,
+    visual_context: dict,
+) -> str:
+    context_lines = [
+        "Visual input context:",
+        f"source_type: {visual_context['source_type']}",
+        f"ordered: {str(bool(visual_context['ordered'])).lower()}",
+        f"sequence: {visual_context['sequence_description']}",
+    ]
+    if visual_context.get("media_composition"):
+        context_lines.append(
+            f"media_composition: {visual_context['media_composition']}"
+        )
+    if visual_context.get("item_types"):
+        context_lines.append(
+            "carousel_items: " + ", ".join(visual_context["item_types"])
+        )
+
     return (
+        "\n".join(context_lines)
+        + "\n\n"
         "Post caption:\n"
         f"{caption or '(no caption available)'}\n\n"
         "Additional metadata:\n"

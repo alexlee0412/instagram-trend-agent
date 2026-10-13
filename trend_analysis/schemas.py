@@ -16,12 +16,23 @@ from dataclasses import asdict, dataclass, field
 from typing import List, Optional
 
 
+@dataclass(frozen=True)
+class VisualContext:
+    """Provider-neutral semantics for the ordered visual attachments."""
+
+    source_type: str  # "video_frames" | "single_image" | "carousel"
+    ordered: bool
+    sequence_description: str
+    media_composition: Optional[str] = None
+    item_types: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
 @dataclass
 class VisualAsset:
-    """One ordered image ready for the trend identifier — the model never
-    needs to know whether it came from a sampled video frame, a single
-    post image, or a carousel slide.
-    """
+    """One ordered image ready for the trend identifier."""
     path: str
     media_type: str  # "video_frame" | "image"
     source_index: int
@@ -38,6 +49,7 @@ class TrendAnalysisResult:
     confidence: Optional[float] = None
 
     content_summary: Optional[str] = None
+    content_format: List[str] = field(default_factory=list)
 
     event_context: List[str] = field(default_factory=list)
     subjects: List[str] = field(default_factory=list)

@@ -1,12 +1,12 @@
 """Model-abstraction boundary for trend identification.
 
-identify_trend(image_paths, metadata, reel_url) is the ONLY function the
-rest of the pipeline calls. image_paths is an ordered list of local image
-files — sampled video frames, a single post image, or carousel slides;
-this boundary (and every provider behind it) never needs to know which. Swapping providers (OpenAI, Claude, a local Ollama
-multimodal model, etc.) means changing this module (and its provider
-module) only — no model-specific calls should appear anywhere else in
-trend_analysis, and analyze_reel.py never imports a provider directly.
+identify_trend(image_paths, metadata, content_url, visual_context) is the ONLY
+function the rest of the pipeline calls. image_paths is an ordered list of
+local images, while visual_context explicitly describes whether they are
+video frames, a single original image, or carousel items. Swapping providers
+(OpenAI, Claude, a local Ollama multimodal model, etc.) means changing this
+module (and its provider module) only — no model-specific calls should appear
+anywhere else in trend_analysis.
 
 Only the OpenAI provider is implemented so far (see openai_provider.py).
 Claude/Ollama intentionally still raise ModelNotConfiguredError rather
@@ -19,7 +19,7 @@ from typing import List
 
 from .config import TREND_MODEL_PROVIDER
 from .openai_provider import ProviderError
-from .schemas import TrendAnalysisResult
+from .schemas import TrendAnalysisResult, VisualContext
 
 __all__ = ["identify_trend", "ModelNotConfiguredError", "ProviderError"]
 
@@ -29,18 +29,26 @@ class ModelNotConfiguredError(Exception):
     (or the configured one isn't implemented yet)."""
 
 
-def identify_trend(image_paths: List[str], metadata: dict, reel_url: str) -> TrendAnalysisResult:
-    """Analyze extracted frames + Reel metadata and return a structured
-    TrendAnalysisResult. Never fabricates a result: raises
-    ModelNotConfiguredError or ProviderError instead.
-    """
+def identify_trend(
+    image_paths: List[str],
+    metadata: dict,
+    content_url: str,
+    visual_context: VisualContext,
+) -> TrendAnalysisResult:
+    """Analyze normalized visuals and return a structured result."""
     if TREND_MODEL_PROVIDER == "openai":
         from . import openai_provider
-        return openai_provider.identify_trend(image_paths, metadata, reel_url)
+        return openai_provider.identify_trend(
+            image_paths, metadata, content_url, visual_context,
+        )
     if TREND_MODEL_PROVIDER == "claude":
-        return _identify_trend_claude(image_paths, metadata, reel_url)
+        return _identify_trend_claude(
+            image_paths, metadata, content_url, visual_context,
+        )
     if TREND_MODEL_PROVIDER == "ollama":
-        return _identify_trend_ollama(image_paths, metadata, reel_url)
+        return _identify_trend_ollama(
+            image_paths, metadata, content_url, visual_context,
+        )
 
     raise ModelNotConfiguredError(
         "No trend-identification model is configured. Set TREND_MODEL_PROVIDER "
@@ -49,14 +57,24 @@ def identify_trend(image_paths: List[str], metadata: dict, reel_url: str) -> Tre
     )
 
 
-def _identify_trend_claude(image_paths: List[str], metadata: dict, reel_url: str) -> TrendAnalysisResult:
+def _identify_trend_claude(
+    image_paths: List[str],
+    metadata: dict,
+    content_url: str,
+    visual_context: VisualContext,
+) -> TrendAnalysisResult:
     raise ModelNotConfiguredError(
         "TREND_MODEL_PROVIDER=claude is set, but the Claude provider is not "
         "implemented yet — requires an ANTHROPIC_API_KEY and the anthropic package."
     )
 
 
-def _identify_trend_ollama(image_paths: List[str], metadata: dict, reel_url: str) -> TrendAnalysisResult:
+def _identify_trend_ollama(
+    image_paths: List[str],
+    metadata: dict,
+    content_url: str,
+    visual_context: VisualContext,
+) -> TrendAnalysisResult:
     raise ModelNotConfiguredError(
         "TREND_MODEL_PROVIDER=ollama is set, but the Ollama provider is not "
         "implemented yet — requires choosing/pulling a local multimodal model first."
